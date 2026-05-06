@@ -1,0 +1,17 @@
+
+# Secrets — NIEMALS committen!
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+
+# Große Datendateien
+data/raw/
+data/processed/
+
+# IDE
+.vscode/
+.idea/

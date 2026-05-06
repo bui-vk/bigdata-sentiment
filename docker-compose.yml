@@ -1,0 +1,183 @@
+version: "3.8"
+
+networks:
+  hadoop-net:
+    driver: bridge
+
+volumes:
+  namenode_data:
+  datanode_data:
+  hive_metastore_db:
+
+services:
+
+  # ============================================================
+  # HDFS NAMENODE — "Verzeichnis" des Dateisystems
+  # Verwaltet Metadaten: welche Datei liegt wo
+  # ============================================================
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    restart: unless-stopped
+    ports:
+      - "9870:9870"    # Web UI (im Browser öffnen zum Debuggen)
+      - "9000:9000"    # HDFS RPC Port
+    volumes:
+      - namenode_data:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=bigdata-sentiment
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - HDFS_CONF_dfs_replication=1   # 1 = lokal genug, kein echtes Cluster
+      - HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check=false
+    networks:
+      - hadoop-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9870"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ============================================================
+  # HDFS DATANODE — Speichert die eigentlichen Daten
+  # ============================================================
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    restart: unless-stopped
+    ports:
+      - "9864:9864"    # Web UI des Datanodes
+    volumes:
+      - datanode_data:/hadoop/dfs/data
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - HDFS_CONF_dfs_replication=1
+    depends_on:
+      namenode:
+        condition: service_healthy
+    networks:
+      - hadoop-net
+
+  # ============================================================
+  # HIVE METASTORE DATABASE — PostgreSQL speichert Hive-Schemas
+  # ============================================================
+  hive-metastore-db:
+    image: postgres:14
+    container_name: hive-metastore-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive123
+    volumes:
+      - hive_metastore_db:/var/lib/postgresql/data
+    networks:
+      - hadoop-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================
+  # HIVE METASTORE — Verwaltet Tabellendefinitionen
+  # ============================================================
+  hive-metastore:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    container_name: hive-metastore
+    restart: unless-stopped
+    environment:
+      - SERVICE_NAME=metastore
+      - DB_DRIVER=postgres
+      - IS_RESUME=true
+      - HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://hive-metastore-db:5432/metastore
+      - HIVE_SITE_CONF_javax_jdo_option_ConnectionDriverName=org.postgresql.Driver
+      - HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
+      - HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive123
+      - HIVE_SITE_CONF_hive_metastore_uris=thrift://hive-metastore:9083
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    ports:
+      - "9083:9083"
+    depends_on:
+      hive-metastore-db:
+        condition: service_healthy
+      datanode:
+        condition: service_started
+    networks:
+      - hadoop-net
+
+  # ============================================================
+  # HIVE SERVER — SQL-Interface für Hive-Queries
+  # ============================================================
+  hive-server:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    container_name: hive-server
+    restart: unless-stopped
+    environment:
+      - SERVICE_NAME=hiveserver2
+      - HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://hive-metastore-db:5432/metastore
+      - HIVE_SITE_CONF_javax_jdo_option_ConnectionDriverName=org.postgresql.Driver
+      - HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
+      - HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive123
+      - HIVE_SITE_CONF_hive_metastore_uris=thrift://hive-metastore:9083
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    ports:
+      - "10000:10000"  # HiveServer2 Thrift
+      - "10002:10002"  # Web UI
+    depends_on:
+      - hive-metastore
+    networks:
+      - hadoop-net
+
+  # ============================================================
+  # APACHE SPARK — Batch-Verarbeitung der Artikel
+  # ============================================================
+  spark-master:
+    image: bde2020/spark-master:3.1.1-hadoop3.2
+    container_name: spark-master
+    restart: unless-stopped
+    ports:
+      - "8080:8080"    # Spark Web UI — hier seht ihr Jobs laufen
+      - "7077:7077"    # Spark Master Port
+    environment:
+      - INIT_DAEMON_STEP=setup_spark
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    networks:
+      - hadoop-net
+
+  spark-worker:
+    image: bde2020/spark-worker:3.1.1-hadoop3.2
+    container_name: spark-worker
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - SPARK_WORKER_MEMORY=2g
+      - SPARK_WORKER_CORES=2
+    depends_on:
+      - spark-master
+    networks:
+      - hadoop-net
+
+  # ============================================================
+  # STREAMLIT DASHBOARD — Visualisierung
+  # ============================================================
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"    # Hier öffnet ihr das Dashboard: http://localhost:8501
+    volumes:
+      - ./dashboard:/app
+    environment:
+      - HIVE_HOST=hive-server
+      - HIVE_PORT=10000
+    depends_on:
+      - hive-server
+    networks:
+      - hadoop-net
