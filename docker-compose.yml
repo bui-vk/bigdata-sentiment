@@ -62,7 +62,7 @@ services:
   # HIVE METASTORE DATABASE — PostgreSQL speichert Hive-Schemas
   # ============================================================
   hive-metastore-db:
-    image: postgres:14
+    image: postgres:13
     container_name: hive-metastore-db
     restart: unless-stopped
     environment:
@@ -96,6 +96,7 @@ services:
       - HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive123
       - HIVE_SITE_CONF_hive_metastore_uris=thrift://hive-metastore:9083
       - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+    command: ["/opt/hive/bin/hive", "--service", "metastore"]
     ports:
       - "9083:9083"
     depends_on:
