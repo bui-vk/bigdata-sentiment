@@ -8,6 +8,7 @@ volumes:
   namenode_data:
   datanode_data:
   hive_metastore_db:
+  finbert_model_cache:
 
 services:
 
@@ -182,3 +183,22 @@ services:
       - hive-server
     networks:
       - hadoop-net
+
+# ============================================================
+  # Finbert
+  # ============================================================
+  finbert:
+    build:
+      context: ./finbert
+      dockerfile: Dockerfile
+    container_name: finbert
+    restart: "no"
+    environment:
+      - WEBHDFS_URL=http://namenode:9870/webhdfs/v1
+    volumes:
+      - ./finbert:/app
+      - finbert_model_cache:/root/.cache/huggingface
+    networks:
+      - hadoop-net
+    depends_on:
+      - namenode

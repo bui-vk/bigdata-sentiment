@@ -1,0 +1,4 @@
+transformers==4.40.0
+pyarrow>=14.0
+pandas>=2.0
+requests>=2.28
