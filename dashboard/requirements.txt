@@ -2,3 +2,4 @@ streamlit
 pandas
 pyhive[hive]
 thrift
+plotly
