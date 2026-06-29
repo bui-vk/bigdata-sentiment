@@ -41,12 +41,10 @@ DJI_COMPANIES = [
     ("CSCO", "Cisco Systems Inc.", "Cisco", "Technology"),
     ("CVX", "Chevron Corporation", "Chevron", "Energy"),
     ("DIS", "The Walt Disney Company", "Disney", "Communication Services"),
-    ("DOW", "Dow Inc.", "Dow", "Materials"),
     ("GS", "The Goldman Sachs Group Inc.", "Goldman Sachs", "Financials"),
     ("HD", "The Home Depot Inc.", "Home Depot", "Consumer Discretionary"),
     ("HON", "Honeywell International Inc.", "Honeywell", "Industrials"),
     ("IBM", "International Business Machines Corporation", "IBM", "Technology"),
-    ("INTC", "Intel Corporation", "Intel", "Technology"),
     ("JNJ", "Johnson & Johnson", "Johnson & Johnson", "Healthcare"),
     ("JPM", "JPMorgan Chase & Co.", "JPMorgan", "Financials"),
     ("KO", "The Coca-Cola Company", "Coca-Cola", "Consumer Staples"),
@@ -60,18 +58,13 @@ DJI_COMPANIES = [
     ("V", "Visa Inc.", "Visa", "Financials"),
     ("VZ", "Verizon Communications Inc.", "Verizon", "Communication Services"),
     ("WMT", "Walmart Inc.", "Walmart", "Consumer Staples"),
-    # Added: NVIDIA and Sherwin-Williams replaced Intel and Dow Inc. in the
-    # real DJIA in Nov 2024. PRD section 9 still lists the pre-2024 roster,
-    # but the ingestion data already tags articles with these tickers, so
-    # they need a proper name/industry instead of falling back to "Unknown".
-    # INTC and DOW are kept above since the ingestion script still tags them too.
     ("NVDA", "NVIDIA Corporation", "NVIDIA", "Technology"),
     ("SHW", "The Sherwin-Williams Company", "Sherwin-Williams", "Materials"),
 ]
 
 # Tickers short/ambiguous enough that matching the bare symbol in free text
 # causes false positives (common words, index names, abbreviations).
-AMBIGUOUS_TICKERS = {"V", "BA", "CAT", "DOW", "GS", "HD", "KO", "MMM", "PG", "TRV"}
+AMBIGUOUS_TICKERS = {"V", "BA", "CAT", "GS", "HD", "KO", "MMM", "PG", "TRV"}
 
 company_meta = {t: (full, industry) for t, full, _short, industry in DJI_COMPANIES}
 
@@ -178,7 +171,7 @@ output = result.select(
     "industry",
 )
 
-output.write.mode("overwrite").parquet("hdfs://namenode:9000/data/processed/news_tagged")
+output.write.mode("append").parquet("hdfs://namenode:9000/data/processed/news_tagged")  # PRD: append-only HDFS
 
 # ---------------------------------------------------------------------------
 # Sanity-check output
