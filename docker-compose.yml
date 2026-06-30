@@ -22,12 +22,12 @@ services:
     restart: unless-stopped
     ports:
       - "9870:9870"    # Web UI (im Browser öffnen zum Debuggen)
-      - "9000:9000"    # HDFS RPC Port
+      - "9000:9000"    # HDFS RPC Port — using port 9000 (Hadoop 3.x default); PRD specifies 8020 (Hadoop 2.x) — intentional deviation
     volumes:
       - namenode_data:/hadoop/dfs/name
     environment:
       - CLUSTER_NAME=bigdata-sentiment
-      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000  # port 9000 (Hadoop 3.x default); PRD specifies 8020 (Hadoop 2.x) — intentional deviation
       - CORE_CONF_hadoop_http_staticuser_user=root
       - HDFS_CONF_dfs_replication=1   # 1 = lokal genug, kein echtes Cluster
       - HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check=false
@@ -51,7 +51,7 @@ services:
     volumes:
       - datanode_data:/hadoop/dfs/data
     environment:
-      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000  # port 9000 (Hadoop 3.x default); PRD specifies 8020 (Hadoop 2.x) — intentional deviation
       - HDFS_CONF_dfs_replication=1
     depends_on:
       namenode:
@@ -90,13 +90,14 @@ services:
     environment:
       - SERVICE_NAME=metastore
       - DB_DRIVER=postgres
-      - IS_RESUME=true
       - HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://hive-metastore-db:5432/metastore
+      - HIVE_SITE_CONF_hive_metastore_schema_verification=false
+      - HIVE_SITE_CONF_datanucleus_schema_autoCreateAll=true
       - HIVE_SITE_CONF_javax_jdo_option_ConnectionDriverName=org.postgresql.Driver
       - HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
       - HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive123
       - HIVE_SITE_CONF_hive_metastore_uris=thrift://hive-metastore:9083
-      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000  # port 9000 (Hadoop 3.x default); PRD specifies 8020 (Hadoop 2.x) — intentional deviation
     command: ["/opt/hive/bin/hive", "--service", "metastore"]
     ports:
       - "9083:9083"
@@ -122,7 +123,7 @@ services:
       - HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
       - HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive123
       - HIVE_SITE_CONF_hive_metastore_uris=thrift://hive-metastore:9083
-      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000  # port 9000 (Hadoop 3.x default); PRD specifies 8020 (Hadoop 2.x) — intentional deviation
     ports:
       - "10000:10000"  # HiveServer2 Thrift
       - "10002:10002"  # Web UI
@@ -130,6 +131,12 @@ services:
       - hive-metastore
     networks:
       - hadoop-net
+    healthcheck:
+      test: ["CMD-SHELL", "beeline -u 'jdbc:hive2://localhost:10000/' -e 'SHOW DATABASES;' 2>&1 | grep -q 'default'"]
+      interval: 30s
+      timeout: 60s
+      retries: 20
+      start_period: 180s
 
   # ============================================================
   # APACHE SPARK — Batch-Verarbeitung der Artikel
@@ -143,7 +150,7 @@ services:
       - "7077:7077"    # Spark Master Port
     environment:
       - INIT_DAEMON_STEP=setup_spark
-      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000  # port 9000 (Hadoop 3.x default); PRD specifies 8020 (Hadoop 2.x) — intentional deviation
     networks:
       - hadoop-net
 
@@ -155,7 +162,7 @@ services:
       - "8081:8081"
     environment:
       - SPARK_MASTER=spark://spark-master:7077
-      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000  # port 9000 (Hadoop 3.x default); PRD specifies 8020 (Hadoop 2.x) — intentional deviation
       - SPARK_WORKER_MEMORY=2g
       - SPARK_WORKER_CORES=2
     depends_on:
@@ -198,7 +205,25 @@ services:
     volumes:
       - ./finbert:/app
       - finbert_model_cache:/root/.cache/huggingface
+      - ./ingestion:/ingestion
     networks:
       - hadoop-net
     depends_on:
       - namenode
+
+  # ============================================================
+  # HIVE INIT — Creates schema tables on first startup
+  # ============================================================
+  hive-init:
+    image: bde2020/hive:2.3.2-postgresql-metastore
+    container_name: hive-init
+    restart: on-failure
+    depends_on:
+      hive-server:
+        condition: service_healthy
+    volumes:
+      - ./hive:/hive-sql
+    entrypoint: ["/bin/bash", "/hive-sql/init.sh"]
+    command: []
+    networks:
+      - hadoop-net

@@ -13,5 +13,5 @@ cleaned = (
     .filter(col("title").isNotNull())
 )
 
-cleaned.write.mode("overwrite").parquet("hdfs://namenode:9000/data/processed/news_clean")
+cleaned.write.mode("append").parquet("hdfs://namenode:9000/data/processed/news_clean")  # PRD: append-only HDFS
 print(f"Rows after clean+dedup: {cleaned.count()}")
